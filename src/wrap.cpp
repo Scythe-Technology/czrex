@@ -62,7 +62,25 @@ extern "C" const char* zig_regex_replace(std::regex* r, const char* str, size_t 
     std::string text(str, strlen);
     std::string format(fmt, fmtlen);
 
+    std::string result = std::regex_replace(text, *r, format, std::regex_constants::format_first_only);
+
+    return strdup(result.c_str());;
+}
+
+extern "C" const char* zig_regex_replaceAll(std::regex* r, const char* str, size_t strlen, const char* fmt, size_t fmtlen) {
+    std::string text(str, strlen);
+    std::string format(fmt, fmtlen);
+
     std::string result = std::regex_replace(text, *r, format);
+
+    return strdup(result.c_str());;
+}
+
+extern "C" const char* zig_regex_format(std::regex* r, const char* str, size_t strlen, const char* fmt, size_t fmtlen) {
+    std::string text(str, strlen);
+    std::string format(fmt, fmtlen);
+
+    std::string result = std::regex_replace(text, *r, format, std::regex_constants::format_no_copy);
 
     return strdup(result.c_str());;
 }

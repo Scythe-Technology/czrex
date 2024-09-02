@@ -13,7 +13,9 @@ const match = extern struct {
 extern "c" fn zig_regex_new([*c]const u8, usize) ?*regex;
 extern "c" fn zig_regex_match(*regex, [*c]const u8, usize) bool;
 extern "c" fn zig_regex_search(*regex, [*c]const u8, usize) match;
+extern "c" fn zig_regex_format(*regex, [*c]const u8, usize, [*c]const u8, usize) [*c]const u8;
 extern "c" fn zig_regex_replace(*regex, [*c]const u8, usize, [*c]const u8, usize) [*c]const u8;
+extern "c" fn zig_regex_replaceAll(*regex, [*c]const u8, usize, [*c]const u8, usize) [*c]const u8;
 extern "c" fn zig_regex_captured_match(*regex, [*c]const u8, usize) match;
 extern "c" fn zig_regex_free(*regex) void;
 extern "c" fn zig_regex_free_mem(*anyopaque) void;
@@ -86,8 +88,20 @@ pub const Regex = struct {
         return try Match.init(self.allocator, search_result);
     }
 
-    pub fn replace(self: *Regex, allocator: std.mem.Allocator, text: []const u8, fmt: []const u8) ![]const u8 {
+    pub fn allocReplace(self: *Regex, allocator: std.mem.Allocator, text: []const u8, fmt: []const u8) ![]const u8 {
         const result = zig_regex_replace(self.r.*, text.ptr, text.len, fmt.ptr, fmt.len);
+        defer zig_regex_free_mem(@constCast(@ptrCast(result)));
+        return try allocator.dupe(u8, std.mem.span(result));
+    }
+
+    pub fn allocReplaceAll(self: *Regex, allocator: std.mem.Allocator, text: []const u8, fmt: []const u8) ![]const u8 {
+        const result = zig_regex_replaceAll(self.r.*, text.ptr, text.len, fmt.ptr, fmt.len);
+        defer zig_regex_free_mem(@constCast(@ptrCast(result)));
+        return try allocator.dupe(u8, std.mem.span(result));
+    }
+
+    pub fn allocFormat(self: *Regex, allocator: std.mem.Allocator, text: []const u8, fmt: []const u8) ![]const u8 {
+        const result = zig_regex_format(self.r.*, text.ptr, text.len, fmt.ptr, fmt.len);
         defer zig_regex_free_mem(@constCast(@ptrCast(result)));
         return try allocator.dupe(u8, std.mem.span(result));
     }

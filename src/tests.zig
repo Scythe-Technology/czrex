@@ -76,18 +76,50 @@ test "Replace" {
     var re = try regex.Regex.compile(allocator, "b+");
     defer re.deinit();
 
-    const result1 = try re.replace(allocator, "abbbc", "$0");
+    const result1 = try re.allocReplace(allocator, "abbbc", "$0");
     defer allocator.free(result1);
     try std.testing.expectEqualStrings("abbbc", result1);
-    const result2 = try re.replace(allocator, "abbbc", "c");
+    const result2 = try re.allocReplace(allocator, "abbbc", "c");
     defer allocator.free(result2);
     try std.testing.expectEqualStrings("acc", result2);
-    const result3 = try re.replace(allocator, "adddc", "c");
+    const result3 = try re.allocReplace(allocator, "adddc", "c");
     defer allocator.free(result3);
     try std.testing.expectEqualStrings("adddc", result3);
-    const result4 = try re.replace(allocator, "abbbc abbbc", "c");
+    const result4 = try re.allocReplace(allocator, "abbbc abbbc", "c");
+    defer allocator.free(result4);
+    try std.testing.expectEqualStrings("acc abbbc", result4);
+}
+
+test "ReplaceAll" {
+    const allocator = std.testing.allocator;
+    var re = try regex.Regex.compile(allocator, "b+");
+    defer re.deinit();
+
+    const result1 = try re.allocReplaceAll(allocator, "abbbc", "$0");
+    defer allocator.free(result1);
+    try std.testing.expectEqualStrings("abbbc", result1);
+    const result2 = try re.allocReplaceAll(allocator, "abbbc", "c");
+    defer allocator.free(result2);
+    try std.testing.expectEqualStrings("acc", result2);
+    const result3 = try re.allocReplaceAll(allocator, "adddc", "c");
+    defer allocator.free(result3);
+    try std.testing.expectEqualStrings("adddc", result3);
+    const result4 = try re.allocReplaceAll(allocator, "abbbc abbbc", "c");
     defer allocator.free(result4);
     try std.testing.expectEqualStrings("acc acc", result4);
+}
+
+test "Format" {
+    const allocator = std.testing.allocator;
+    var re = try regex.Regex.compile(allocator, "b+");
+    defer re.deinit();
+
+    const result1 = try re.allocFormat(allocator, "abbbc", "$0");
+    defer allocator.free(result1);
+    try std.testing.expectEqualStrings("bbb", result1);
+    const result2 = try re.allocFormat(allocator, "abbbc", "b=$0");
+    defer allocator.free(result2);
+    try std.testing.expectEqualStrings("b=bbb", result2);
 }
 
 test "Strict Search" {
