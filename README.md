@@ -14,7 +14,7 @@ pub fn main() !void {
 
     if (try re.match("abbbb")) |match| {
         defer match.deinit();
-        const groups = match.getGroups();
+        const groups = match.groups;
         std.debug.print("{s}\n", .{groups[0]});
         std.debug.print("{s}\n", .{groups[1]});
     }

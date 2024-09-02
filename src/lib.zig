@@ -6,38 +6,50 @@ const regex_size = 64;
 
 const match = extern struct {
     strings: [*c][*c]const u8,
+    positions: [*c]usize,
     groups: usize,
 };
 
 extern "c" fn zig_regex_new([*c]const u8, usize) ?*regex;
 extern "c" fn zig_regex_match(*regex, [*c]const u8, usize) bool;
+extern "c" fn zig_regex_search(*regex, [*c]const u8, usize) match;
+extern "c" fn zig_regex_replace(*regex, [*c]const u8, usize, [*c]const u8, usize) [*c]const u8;
 extern "c" fn zig_regex_captured_match(*regex, [*c]const u8, usize) match;
 extern "c" fn zig_regex_free(*regex) void;
+extern "c" fn zig_regex_free_mem(*anyopaque) void;
 extern "c" fn zig_regex_free_match(match) void;
 
 pub const Match = struct {
     allocator: std.mem.Allocator,
-    groups: []const []const u8,
+    groups: []Group,
+
+    pub const Group = struct {
+        index: usize,
+        slice: []const u8,
+    };
 
     pub fn init(allocator: std.mem.Allocator, m: match) !Match {
-        const groups = try allocator.alloc([]const u8, m.groups);
+        const size = m.groups;
+        const groups = try allocator.alloc(Group, size);
         errdefer {
-            for (groups) |str| allocator.free(str);
+            for (groups) |group| allocator.free(group.slice);
             allocator.free(groups);
         }
-        for (m.strings[0..m.groups], 0..) |group, i| groups[i] = try allocator.dupe(u8, std.mem.span(group));
+        const m_positions = m.positions[0..size];
+        for (m.strings[0..size], 0..) |group, i| {
+            groups[i] = .{
+                .slice = try allocator.dupe(u8, std.mem.span(group)),
+                .index = m_positions[i],
+            };
+        }
         return .{
             .allocator = allocator,
             .groups = groups,
         };
     }
 
-    pub fn getGroups(self: Match) []const []const u8 {
-        return self.groups;
-    }
-
     pub fn deinit(self: Match) void {
-        for (self.groups) |str| self.allocator.free(str);
+        for (self.groups) |group| self.allocator.free(group.slice);
         self.allocator.free(self.groups);
     }
 };
@@ -65,6 +77,19 @@ pub const Regex = struct {
         defer zig_regex_free_match(search_result);
         if (search_result.groups == 0) return null;
         return try Match.init(self.allocator, search_result);
+    }
+
+    pub fn search(self: *Regex, text: []const u8) !?Match {
+        const search_result = zig_regex_search(self.r.*, text.ptr, text.len);
+        defer zig_regex_free_match(search_result);
+        if (search_result.groups == 0) return null;
+        return try Match.init(self.allocator, search_result);
+    }
+
+    pub fn replace(self: *Regex, allocator: std.mem.Allocator, text: []const u8, fmt: []const u8) ![]const u8 {
+        const result = zig_regex_replace(self.r.*, text.ptr, text.len, fmt.ptr, fmt.len);
+        defer zig_regex_free_mem(@constCast(@ptrCast(result)));
+        return try allocator.dupe(u8, std.mem.span(result));
     }
 
     pub fn deinit(self: *Regex) void {

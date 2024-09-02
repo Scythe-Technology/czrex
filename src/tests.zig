@@ -7,6 +7,110 @@ test "Fail" {
     try std.testing.expectError(error.Fail, regex.Regex.compile(std.testing.allocator, "**"));
 }
 
+test "Match" {
+    var re = try regex.Regex.compile(std.testing.allocator, "a(b+)c");
+    defer re.deinit();
+
+    if (try re.match("abbbc")) |m| {
+        defer m.deinit();
+        try std.testing.expectEqualStrings("abbbc", m.groups[0].slice);
+        try std.testing.expectEqual(0, m.groups[0].index);
+        try std.testing.expectEqualStrings("bbb", m.groups[1].slice);
+        try std.testing.expectEqual(1, m.groups[1].index);
+    } else return error.Fail;
+
+    if (try re.match("   abbbc")) |m| {
+        m.deinit();
+        return error.Fail;
+    }
+}
+
+test "Workaround Match" {
+    var re = try regex.Regex.compile(std.testing.allocator, "\\s*(a(b+)c)\\s*");
+    defer re.deinit();
+
+    if (try re.match("abbbc")) |m| {
+        defer m.deinit();
+        try std.testing.expectEqualStrings("abbbc", m.groups[0].slice);
+        try std.testing.expectEqual(0, m.groups[0].index);
+        try std.testing.expectEqualStrings("abbbc", m.groups[1].slice);
+        try std.testing.expectEqual(0, m.groups[1].index);
+        try std.testing.expectEqualStrings("bbb", m.groups[2].slice);
+        try std.testing.expectEqual(1, m.groups[2].index);
+    } else return error.Fail;
+
+    if (try re.match("   abbbc")) |m| {
+        defer m.deinit();
+        try std.testing.expectEqualStrings("   abbbc", m.groups[0].slice);
+        try std.testing.expectEqual(0, m.groups[0].index);
+        try std.testing.expectEqualStrings("abbbc", m.groups[1].slice);
+        try std.testing.expectEqual(3, m.groups[1].index);
+        try std.testing.expectEqualStrings("bbb", m.groups[2].slice);
+        try std.testing.expectEqual(4, m.groups[2].index);
+    } else return error.Fail;
+}
+
+test "Search" {
+    var re = try regex.Regex.compile(std.testing.allocator, "a(b+)c");
+    defer re.deinit();
+
+    if (try re.search("abbbc")) |m| {
+        defer m.deinit();
+        try std.testing.expectEqualStrings("abbbc", m.groups[0].slice);
+        try std.testing.expectEqual(0, m.groups[0].index);
+        try std.testing.expectEqualStrings("bbb", m.groups[1].slice);
+        try std.testing.expectEqual(1, m.groups[1].index);
+    } else return error.Fail;
+
+    if (try re.search("   abbbc")) |m| {
+        defer m.deinit();
+        try std.testing.expectEqualStrings("abbbc", m.groups[0].slice);
+        try std.testing.expectEqual(3, m.groups[0].index);
+        try std.testing.expectEqualStrings("bbb", m.groups[1].slice);
+        try std.testing.expectEqual(4, m.groups[1].index);
+    }
+}
+
+test "Replace" {
+    const allocator = std.testing.allocator;
+    var re = try regex.Regex.compile(allocator, "b+");
+    defer re.deinit();
+
+    const result1 = try re.replace(allocator, "abbbc", "$0");
+    defer allocator.free(result1);
+    try std.testing.expectEqualStrings("abbbc", result1);
+    const result2 = try re.replace(allocator, "abbbc", "c");
+    defer allocator.free(result2);
+    try std.testing.expectEqualStrings("acc", result2);
+    const result3 = try re.replace(allocator, "adddc", "c");
+    defer allocator.free(result3);
+    try std.testing.expectEqualStrings("adddc", result3);
+    const result4 = try re.replace(allocator, "abbbc abbbc", "c");
+    defer allocator.free(result4);
+    try std.testing.expectEqualStrings("acc acc", result4);
+}
+
+test "Strict Search" {
+    var re = try regex.Regex.compile(std.testing.allocator, "^a(b+)c$");
+    defer re.deinit();
+
+    if (try re.search("abbbc")) |m| {
+        defer m.deinit();
+        try std.testing.expectEqualStrings("abbbc", m.groups[0].slice);
+        try std.testing.expectEqual(0, m.groups[0].index);
+        try std.testing.expectEqualStrings("bbb", m.groups[1].slice);
+        try std.testing.expectEqual(1, m.groups[1].index);
+    } else return error.Fail;
+
+    if (try re.search("   abbbc")) |m| {
+        defer m.deinit();
+        try std.testing.expectEqualStrings("abbbc", m.groups[0].slice);
+        try std.testing.expectEqual(3, m.groups[0].index);
+        try std.testing.expectEqualStrings("bbb", m.groups[1].slice);
+        try std.testing.expectEqual(4, m.groups[1].index);
+    }
+}
+
 test "Semver 2.0.0" {
     var re = try regex.Regex.compile(std.testing.allocator, "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$");
     defer re.deinit();
@@ -95,13 +199,16 @@ test "Semver 2.0.0" {
         // Suppose to match
         if (try re.match(line)) |match| {
             defer match.deinit();
-            const groups = match.getGroups();
+            const groups = match.groups;
             try std.testing.expect(groups.len > 0);
         } else return error.Fail;
     }
 
     while (invalid_iter.next()) |line| {
         // Not suppose to match
-        if (try re.match(line)) |_| return error.Fail;
+        if (try re.match(line)) |m| {
+            m.deinit();
+            return error.Fail;
+        }
     }
 }
