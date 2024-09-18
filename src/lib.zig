@@ -10,7 +10,19 @@ const match = extern struct {
     groups: usize,
 };
 
-extern "c" fn zig_regex_new([*c]const u8, usize) ?*regex;
+pub const FLAG_ECMASCRIPT = 0;
+pub const FLAG_IGNORECASE = 1 << 0;
+pub const FLAG_NOSUBS = 1 << 1;
+pub const FLAG_OPTIMIZE = 1 << 2;
+pub const FLAG_COLLATE = 1 << 3;
+pub const FLAG_BASIC = 1 << 4;
+pub const FLAG_EXTENDED = 1 << 5;
+pub const FLAG_AWK = 1 << 6;
+pub const FLAG_GREP = 1 << 7;
+pub const FLAG_EGREP = 1 << 8;
+pub const FLAG_MULTILINE = 1 << 10;
+
+extern "c" fn zig_regex_new([*c]const u8, usize, c_int) ?*regex;
 extern "c" fn zig_regex_match(*regex, [*c]const u8, usize) bool;
 extern "c" fn zig_regex_search(*regex, [*c]const u8, usize) match;
 extern "c" fn zig_regex_format(*regex, [*c]const u8, usize, [*c]const u8, usize) [*c]const u8;
@@ -60,8 +72,8 @@ pub const Regex = struct {
     allocator: std.mem.Allocator,
     r: **regex,
 
-    pub fn compile(allocator: std.mem.Allocator, pattern: []const u8) !Regex {
-        if (zig_regex_new(pattern.ptr, pattern.len)) |ptr| {
+    pub fn compile(allocator: std.mem.Allocator, pattern: []const u8, flag: ?c_int) !Regex {
+        if (zig_regex_new(pattern.ptr, pattern.len, flag orelse -1)) |ptr| {
             // Really only helpful to let zig know there was an allocation.
             const r_ptr = try allocator.create(*regex);
             r_ptr.* = ptr;

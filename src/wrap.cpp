@@ -9,9 +9,11 @@ extern "C" struct match {
     size_t groups;
 };
 
-extern "C" std::regex* zig_regex_new(const char* cstr, size_t len) {
+extern "C" std::regex* zig_regex_new(const char* cstr, size_t len, int flags) {
     std::string pattern(cstr, len);
     try {
+        if (flags != -1)
+            return new std::regex(pattern, (std::regex::flag_type)flags);
         return new std::regex(pattern);
     } catch (std::regex_error& e) {
         return nullptr;

@@ -4,11 +4,11 @@ const regex = @import("regex");
 // TODO: More testing?
 
 test "Fail" {
-    try std.testing.expectError(error.Fail, regex.Regex.compile(std.testing.allocator, "**"));
+    try std.testing.expectError(error.Fail, regex.Regex.compile(std.testing.allocator, "**", null));
 }
 
 test "Match" {
-    var re = try regex.Regex.compile(std.testing.allocator, "a(b+)c");
+    var re = try regex.Regex.compile(std.testing.allocator, "a(b+)c", null);
     defer re.deinit();
 
     if (try re.match("abbbc")) |m| {
@@ -26,7 +26,7 @@ test "Match" {
 }
 
 test "Workaround Match" {
-    var re = try regex.Regex.compile(std.testing.allocator, "\\s*(a(b+)c)\\s*");
+    var re = try regex.Regex.compile(std.testing.allocator, "\\s*(a(b+)c)\\s*", null);
     defer re.deinit();
 
     if (try re.match("abbbc")) |m| {
@@ -51,7 +51,7 @@ test "Workaround Match" {
 }
 
 test "Search" {
-    var re = try regex.Regex.compile(std.testing.allocator, "a(b+)c");
+    var re = try regex.Regex.compile(std.testing.allocator, "a(b+)c", null);
     defer re.deinit();
 
     if (try re.search("abbbc")) |m| {
@@ -73,7 +73,7 @@ test "Search" {
 
 test "Replace" {
     const allocator = std.testing.allocator;
-    var re = try regex.Regex.compile(allocator, "b+");
+    var re = try regex.Regex.compile(allocator, "b+", null);
     defer re.deinit();
 
     const result1 = try re.allocReplace(allocator, "abbbc", "$0");
@@ -92,7 +92,7 @@ test "Replace" {
 
 test "ReplaceAll" {
     const allocator = std.testing.allocator;
-    var re = try regex.Regex.compile(allocator, "b+");
+    var re = try regex.Regex.compile(allocator, "b+", null);
     defer re.deinit();
 
     const result1 = try re.allocReplaceAll(allocator, "abbbc", "$0");
@@ -109,9 +109,52 @@ test "ReplaceAll" {
     try std.testing.expectEqualStrings("acc acc", result4);
 }
 
+test "ReplaceAll CaseInsensitive" {
+    const allocator = std.testing.allocator;
+    var re = try regex.Regex.compile(allocator, "^(a)(b+)(c)$", regex.FLAG_IGNORECASE);
+    defer re.deinit();
+
+    const result1 = try re.allocReplaceAll(allocator, "ABBBC", "$0");
+    defer allocator.free(result1);
+    try std.testing.expectEqualStrings("ABBBC", result1);
+    const result2 = try re.allocReplaceAll(allocator, "ABBBC", "$1c$3");
+    defer allocator.free(result2);
+    try std.testing.expectEqualStrings("AcC", result2);
+    const result3 = try re.allocReplaceAll(allocator, "ADDDC", "$1c$3");
+    defer allocator.free(result3);
+    try std.testing.expectEqualStrings("ADDDC", result3);
+    {
+        const result4 = try re.allocReplaceAll(allocator, "ABBBC ABBBC", "$1c$3");
+        defer allocator.free(result4);
+        try std.testing.expectEqualStrings("ABBBC ABBBC", result4);
+        const result5 = try re.allocReplaceAll(allocator, "ABBBC\nABBBC", "$1c$3");
+        defer allocator.free(result5);
+        try std.testing.expectEqualStrings("ABBBC\nABBBC", result5);
+    }
+}
+
+test "ReplaceAll CaseInsensitive Multiline" {
+    const allocator = std.testing.allocator;
+    var re = try regex.Regex.compile(allocator, "^(a)(b+)(c)$", regex.FLAG_IGNORECASE | regex.FLAG_MULTILINE);
+    defer re.deinit();
+
+    const result1 = try re.allocReplaceAll(allocator, "ABBBC\nABBBC", "$0");
+    defer allocator.free(result1);
+    try std.testing.expectEqualStrings("ABBBC\nABBBC", result1);
+    const result2 = try re.allocReplaceAll(allocator, "ABBBC\nABBBC", "$1c$3");
+    defer allocator.free(result2);
+    try std.testing.expectEqualStrings("AcC\nAcC", result2);
+    const result3 = try re.allocReplaceAll(allocator, "ADDDC\nADDDC", "$1c$3");
+    defer allocator.free(result3);
+    try std.testing.expectEqualStrings("ADDDC\nADDDC", result3);
+    const result4 = try re.allocReplaceAll(allocator, "ABBBC ABBBC\nABBBC ABBBC", "$1c$3");
+    defer allocator.free(result4);
+    try std.testing.expectEqualStrings("ABBBC ABBBC\nABBBC ABBBC", result4);
+}
+
 test "Format" {
     const allocator = std.testing.allocator;
-    var re = try regex.Regex.compile(allocator, "b+");
+    var re = try regex.Regex.compile(allocator, "b+", null);
     defer re.deinit();
 
     const result1 = try re.allocFormat(allocator, "abbbc", "$0");
@@ -123,7 +166,7 @@ test "Format" {
 }
 
 test "Strict Search" {
-    var re = try regex.Regex.compile(std.testing.allocator, "^a(b+)c$");
+    var re = try regex.Regex.compile(std.testing.allocator, "^a(b+)c$", null);
     defer re.deinit();
 
     if (try re.search("abbbc")) |m| {
@@ -144,7 +187,7 @@ test "Strict Search" {
 }
 
 test "Semver 2.0.0" {
-    var re = try regex.Regex.compile(std.testing.allocator, "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$");
+    var re = try regex.Regex.compile(std.testing.allocator, "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$", null);
     defer re.deinit();
 
     var valid_iter = std.mem.split(u8,
