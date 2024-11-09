@@ -25,6 +25,26 @@ test "Match" {
     }
 }
 
+test "Match Unicode" {
+    const allocator = std.testing.allocator;
+    var re = try regex.WRegex.compile(allocator, "🍕", null);
+    defer re.deinit();
+
+    // TODO: Fix
+    // const input = try regex.utf8ToUtfWide(allocator, "a🍕c");
+    // defer allocator.free(input);
+
+    // if (try re.match(input)) |m| {
+    //     defer m.deinit();
+    //     try std.testing.expectEqual(1, m.groups.len);
+    //     std.debug.print("{any}\n", .{m.groups[0].slice});
+    //     // try std.testing.expectEqualStrings("abbbc", m.groups[0].slice);
+    //     try std.testing.expectEqual(0, m.groups[0].index);
+    //     // try std.testing.expectEqualStrings("bbb", m.groups[1].slice);
+    //     // try std.testing.expectEqual(1, m.groups[1].index);
+    // } else return error.Fail;
+}
+
 test "Workaround Match" {
     var re = try regex.Regex.compile(std.testing.allocator, "\\s*(a(b+)c)\\s*", null);
     defer re.deinit();
@@ -163,6 +183,40 @@ test "Format" {
     const result2 = try re.allocFormat(allocator, "abbbc", "b=$0");
     defer allocator.free(result2);
     try std.testing.expectEqualStrings("b=bbb", result2);
+}
+
+test "Captures" {
+    const allocator = std.testing.allocator;
+    var re = try regex.Regex.compile(allocator, "b", null);
+    defer re.deinit();
+
+    {
+        const captures = try re.capturesAlloc(allocator, "abbbc", true);
+        defer regex.Regex.freeCaptures(allocator, captures);
+
+        try std.testing.expectEqual(3, captures.len);
+
+        for (captures, 1..) |capture, i| {
+            try std.testing.expectEqual(1, capture.groups.len);
+            const first = capture.groups[0];
+            try std.testing.expectEqualStrings("b", first.slice);
+            try std.testing.expectEqual(i, first.index);
+        }
+    }
+
+    {
+        const captures = try re.capturesAlloc(allocator, "abbbc", false);
+        defer regex.Regex.freeCaptures(allocator, captures);
+
+        try std.testing.expectEqual(1, captures.len);
+
+        for (captures, 1..) |capture, i| {
+            try std.testing.expectEqual(1, capture.groups.len);
+            const first = capture.groups[0];
+            try std.testing.expectEqualStrings("b", first.slice);
+            try std.testing.expectEqual(i, first.index);
+        }
+    }
 }
 
 test "Strict Search" {
