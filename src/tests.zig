@@ -23,20 +23,6 @@ test "Fail" {
     try std.testing.expectError(error.Fail, regex.WRegex.compileW(std.testing.allocator, pattern, null));
 }
 
-test "SAMPLE" {
-    const allocator = std.heap.page_allocator;
-
-    var re = try regex.WRegex.compile(allocator, "a(🍕+)", null);
-    defer re.deinit();
-
-    if (try re.match("a🍕🍕🍕🍕")) |match| {
-        defer match.deinit();
-        const groups = match.groups;
-        std.debug.print("'{s}' at index: {}\n", .{ groups[0].slice, groups[0].index });
-        std.debug.print("'{s}' at index: {}\n", .{ groups[1].slice, groups[1].index });
-    }
-}
-
 test "IsMatch" {
     const allocator = std.testing.allocator;
     var re = try regex.Regex.compile(allocator, "b+", null);
