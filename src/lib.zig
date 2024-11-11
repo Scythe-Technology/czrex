@@ -197,7 +197,7 @@ pub fn utf8ToUtfWideLeAlloc(allocator: std.mem.Allocator, slice: []const u8) ![]
 
 pub fn utfWideToUtf8Alloc(allocator: std.mem.Allocator, slice: []const p_wchar) ![]const p_char {
     return switch (builtin.os.tag) {
-        .windows => try std.unicode.utf16leToUtf8Alloc(allocator, slice),
+        .windows => try std.unicode.utf16LeToUtf8Alloc(allocator, slice),
         else => utf32leToUtf8Alloc(allocator, slice),
     };
 }
