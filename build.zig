@@ -21,6 +21,10 @@ pub fn build(b: *std.Build) void {
 
     lib.addCSourceFile(.{
         .file = b.path("src/wrap.cpp"),
+        .flags = &.{
+            "-Xclang=-fwchar-type=int",
+            "-Xclang=-fno-signed-wchar",
+        },
     });
 
     czrex.linkLibrary(lib);

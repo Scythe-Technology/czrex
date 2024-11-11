@@ -6,10 +6,7 @@ const wregex = *align(8) opaque {};
 const regex_size = 64;
 
 pub const p_char = u8;
-pub const p_wchar = switch (builtin.os.tag) {
-    .windows => u16,
-    else => u32,
-};
+pub const p_wchar = u32;
 
 const match = extern struct {
     strings: [*c][*c]p_char,
@@ -230,17 +227,11 @@ pub fn utf32LeToUtf8Alloc(allocator: std.mem.Allocator, slice: []const u32) ![]c
 pub fn utf8ToUtfWideLeAlloc(allocator: std.mem.Allocator, slice: []const u8) ![]const p_wchar {
     if (!std.unicode.utf8ValidateSlice(slice))
         return error.InvalidUtf8;
-    return switch (builtin.os.tag) {
-        .windows => std.unicode.utf8ToUtf16LeAlloc(allocator, slice),
-        else => utf8ToUtf32LeAlloc(allocator, slice),
-    };
+    return utf8ToUtf32LeAlloc(allocator, slice);
 }
 
 pub fn utfWideLeToUtf8Alloc(allocator: std.mem.Allocator, slice: []const p_wchar) ![]const p_char {
-    return switch (builtin.os.tag) {
-        .windows => try std.unicode.utf16LeToUtf8Alloc(allocator, slice),
-        else => utf32LeToUtf8Alloc(allocator, slice),
-    };
+    return utf32LeToUtf8Alloc(allocator, slice);
 }
 
 pub const WRegex = struct {
