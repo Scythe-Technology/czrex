@@ -68,7 +68,7 @@ pub const Match = struct {
 
     pub const Group = struct {
         index: usize,
-        slice: []const p_char,
+        slice: []const u8,
     };
 
     pub fn init(allocator: std.mem.Allocator, m: match) !Match {
@@ -86,7 +86,29 @@ pub const Match = struct {
                 .slice = try allocator.dupe(p_char, group[0..m.sizes[i]]),
                 .index = m_positions[i],
             };
-            count += 1;
+            count = i;
+        }
+        return .{
+            .allocator = allocator,
+            .groups = groups,
+        };
+    }
+
+    pub fn fromWMatch(allocator: std.mem.Allocator, wm: WMatch) !Match {
+        const size = wm.groups.len;
+        const groups = try allocator.alloc(Group, size);
+        var count: usize = 0;
+        errdefer {
+            for (0..count) |i|
+                allocator.free(groups[i].slice);
+            allocator.free(groups);
+        }
+        for (wm.groups, 0..) |group, i| {
+            groups[i] = .{
+                .slice = try utfWideLeToUtf8Alloc(allocator, group.slice),
+                .index = group.index,
+            };
+            count = i;
         }
         return .{
             .allocator = allocator,
@@ -144,6 +166,25 @@ pub const Captures = struct {
     allocator: std.mem.Allocator,
     captures: []const Match,
 
+    pub fn fromWCaptures(allocator: std.mem.Allocator, wc: WCaptures) !Captures {
+        const size = wc.captures.len;
+        const captures = try allocator.alloc(Match, size);
+        var count: usize = 0;
+        errdefer {
+            for (0..count) |i|
+                captures[i].deinit();
+            allocator.free(captures);
+        }
+        for (wc.captures, 0..) |capture, i| {
+            captures[i] = try Match.fromWMatch(allocator, capture);
+            count = i;
+        }
+        return .{
+            .allocator = allocator,
+            .captures = captures,
+        };
+    }
+
     pub fn deinit(self: Captures) void {
         for (self.captures) |capture|
             capture.deinit();
@@ -174,7 +215,7 @@ pub fn utf8ToUtf32LeAlloc(allocator: std.mem.Allocator, slice: []const u8) ![]co
     return try result.toOwnedSlice();
 }
 
-pub fn utf32leToUtf8Alloc(allocator: std.mem.Allocator, slice: []const u32) ![]const u8 {
+pub fn utf32LeToUtf8Alloc(allocator: std.mem.Allocator, slice: []const u32) ![]const u8 {
     var result = try std.ArrayList(u8).initCapacity(allocator, slice.len);
     errdefer result.deinit();
     for (slice) |code| {
@@ -195,10 +236,10 @@ pub fn utf8ToUtfWideLeAlloc(allocator: std.mem.Allocator, slice: []const u8) ![]
     };
 }
 
-pub fn utfWideToUtf8Alloc(allocator: std.mem.Allocator, slice: []const p_wchar) ![]const p_char {
+pub fn utfWideLeToUtf8Alloc(allocator: std.mem.Allocator, slice: []const p_wchar) ![]const p_char {
     return switch (builtin.os.tag) {
         .windows => try std.unicode.utf16LeToUtf8Alloc(allocator, slice),
-        else => utf32leToUtf8Alloc(allocator, slice),
+        else => utf32LeToUtf8Alloc(allocator, slice),
     };
 }
 
@@ -207,15 +248,14 @@ pub const WRegex = struct {
     r: *wregex,
 
     pub fn compile(allocator: std.mem.Allocator, pattern: []const u8, flag: ?c_int) !WRegex {
-        if (!std.unicode.utf8ValidateSlice(pattern))
-            return error.InvalidUtf8;
-        const wpattern: []const p_wchar = switch (builtin.os.tag) {
-            .windows => try std.unicode.utf8ToUtf16LeAlloc(allocator, pattern),
-            else => try utf8ToUtf32LeAlloc(allocator, pattern),
-        };
-        defer allocator.free(wpattern);
+        const pattern_wide: []const p_wchar = try utf8ToUtfWideLeAlloc(allocator, pattern);
+        defer allocator.free(pattern_wide);
 
-        if (zig_wregex_new(wpattern.ptr, wpattern.len, flag orelse -1)) |ptr| {
+        return WRegex.compileW(allocator, pattern_wide, flag);
+    }
+
+    pub fn compileW(allocator: std.mem.Allocator, pattern: []const p_wchar, flag: ?c_int) !WRegex {
+        if (zig_wregex_new(pattern.ptr, pattern.len, flag orelse -1)) |ptr| {
             // Really only helpful to let zig know there was an allocation.
             const r_ptr = try allocator.create(wregex);
             r_ptr.* = ptr;
@@ -224,11 +264,31 @@ pub const WRegex = struct {
         return error.Fail;
     }
 
-    pub inline fn isMatch(self: *WRegex, text: []const p_wchar) bool {
+    pub fn isMatch(self: *WRegex, text: []const u8) !bool {
+        if (!std.unicode.utf8ValidateSlice(text))
+            return false;
+
+        const text_wide: []const p_wchar = try utf8ToUtfWideLeAlloc(self.allocator, text);
+        defer self.allocator.free(text_wide);
+
+        return self.isMatchW(text_wide);
+    }
+
+    pub inline fn isMatchW(self: *WRegex, text: []const p_wchar) bool {
         return zig_wregex_match(self.r.*, text.ptr, text.len);
     }
 
-    pub fn match(self: *WRegex, text: []const p_wchar) !?WMatch {
+    pub fn match(self: *WRegex, text: []const u8) !?Match {
+        const text_wide: []const p_wchar = try utf8ToUtfWideLeAlloc(self.allocator, text);
+        defer self.allocator.free(text_wide);
+
+        const result = try self.matchW(text_wide) orelse return null;
+        defer result.deinit();
+
+        return try Match.fromWMatch(self.allocator, result);
+    }
+
+    pub fn matchW(self: *WRegex, text: []const p_wchar) !?WMatch {
         const search_result = zig_wregex_captured_match(self.r.*, text.ptr, text.len);
         defer zig_wregex_free_wmatch(search_result);
         if (search_result.size == 0)
@@ -236,7 +296,17 @@ pub const WRegex = struct {
         return try WMatch.init(self.allocator, search_result);
     }
 
-    pub fn capturesAlloc(self: *WRegex, allocator: std.mem.Allocator, text: []const p_wchar, global: bool) !WCaptures {
+    pub fn capturesAlloc(self: *WRegex, allocator: std.mem.Allocator, text: []const u8, global: bool) !Captures {
+        const text_wide: []const p_wchar = try utf8ToUtfWideLeAlloc(allocator, text);
+        defer allocator.free(text_wide);
+
+        const reuslt = try self.capturesAllocW(allocator, text_wide, global);
+        defer reuslt.deinit();
+
+        return Captures.fromWCaptures(allocator, reuslt);
+    }
+
+    pub fn capturesAllocW(self: *WRegex, allocator: std.mem.Allocator, text: []const p_wchar, global: bool) !WCaptures {
         var count: usize = 0;
         const search_result = zig_wregex_captures(self.r.*, text.ptr, text.len, &count, global);
         defer zig_wregex_free_captures(search_result, count);
@@ -260,7 +330,17 @@ pub const WRegex = struct {
         };
     }
 
-    pub fn search(self: *WRegex, text: []const p_wchar) !?WMatch {
+    pub fn search(self: *WRegex, text: []const u8) !?Match {
+        const text_wide: []const p_wchar = try utf8ToUtfWideLeAlloc(self.allocator, text);
+        defer self.allocator.free(text_wide);
+
+        const result = try self.searchW(text_wide) orelse return null;
+        defer result.deinit();
+
+        return try Match.fromWMatch(self.allocator, result);
+    }
+
+    pub fn searchW(self: *WRegex, text: []const p_wchar) !?WMatch {
         const search_result = zig_wregex_search(self.r.*, text.ptr, text.len);
         defer zig_wregex_free_wmatch(search_result);
         if (search_result.size == 0)
@@ -268,21 +348,60 @@ pub const WRegex = struct {
         return try WMatch.init(self.allocator, search_result);
     }
 
-    pub fn allocReplace(self: *WRegex, allocator: std.mem.Allocator, text: []const p_wchar, fmt: []const p_wchar) ![]const p_wchar {
+    pub fn allocReplace(self: *WRegex, allocator: std.mem.Allocator, text: []const u8, fmt: []const u8) ![]const u8 {
+        const text_wide: []const p_wchar = try utf8ToUtfWideLeAlloc(allocator, text);
+        defer allocator.free(text_wide);
+
+        const fmt_wide: []const p_wchar = try utf8ToUtfWideLeAlloc(allocator, fmt);
+        defer allocator.free(fmt_wide);
+
+        const result = try self.allocReplaceW(allocator, text_wide, fmt_wide);
+        defer allocator.free(result);
+
+        return try utfWideLeToUtf8Alloc(allocator, result);
+    }
+
+    pub fn allocReplaceW(self: *WRegex, allocator: std.mem.Allocator, text: []const p_wchar, fmt: []const p_wchar) ![]const p_wchar {
         var length: usize = 0;
         const result = zig_wregex_replace(self.r.*, text.ptr, text.len, fmt.ptr, fmt.len, &length);
         defer zig_wregex_delete(result);
         return try allocator.dupe(p_wchar, result[0..length]);
     }
 
-    pub fn allocReplaceAll(self: *WRegex, allocator: std.mem.Allocator, text: []const p_wchar, fmt: []const p_wchar) ![]const p_wchar {
+    pub fn allocReplaceAll(self: *WRegex, allocator: std.mem.Allocator, text: []const u8, fmt: []const u8) ![]const u8 {
+        const text_wide: []const p_wchar = try utf8ToUtfWideLeAlloc(allocator, text);
+        defer allocator.free(text_wide);
+
+        const fmt_wide: []const p_wchar = try utf8ToUtfWideLeAlloc(allocator, fmt);
+        defer allocator.free(fmt_wide);
+
+        const result = try self.allocReplaceAllW(allocator, text_wide, fmt_wide);
+        defer allocator.free(result);
+
+        return try utfWideLeToUtf8Alloc(allocator, result);
+    }
+
+    pub fn allocReplaceAllW(self: *WRegex, allocator: std.mem.Allocator, text: []const p_wchar, fmt: []const p_wchar) ![]const p_wchar {
         var length: usize = 0;
         const result = zig_wregex_replaceAll(self.r.*, text.ptr, text.len, fmt.ptr, fmt.len, &length);
         defer zig_wregex_delete(result);
         return try allocator.dupe(p_wchar, result[0..length]);
     }
 
-    pub fn allocFormat(self: *WRegex, allocator: std.mem.Allocator, text: []const p_wchar, fmt: []const p_wchar) ![]const p_wchar {
+    pub fn allocFormat(self: *WRegex, allocator: std.mem.Allocator, text: []const u8, fmt: []const u8) ![]const u8 {
+        const text_wide: []const p_wchar = try utf8ToUtfWideLeAlloc(allocator, text);
+        defer allocator.free(text_wide);
+
+        const fmt_wide: []const p_wchar = try utf8ToUtfWideLeAlloc(allocator, fmt);
+        defer allocator.free(fmt_wide);
+
+        const result = try self.allocFormatW(allocator, text_wide, fmt_wide);
+        defer allocator.free(result);
+
+        return try utfWideLeToUtf8Alloc(allocator, result);
+    }
+
+    pub fn allocFormatW(self: *WRegex, allocator: std.mem.Allocator, text: []const p_wchar, fmt: []const p_wchar) ![]const p_wchar {
         var length: usize = 0;
         const result = zig_wregex_format(self.r.*, text.ptr, text.len, fmt.ptr, fmt.len, &length);
         defer zig_wregex_delete(result);
@@ -299,7 +418,7 @@ pub const Regex = struct {
     allocator: std.mem.Allocator,
     r: *regex,
 
-    pub fn compile(allocator: std.mem.Allocator, pattern: []const p_char, flag: ?c_int) !Regex {
+    pub fn compile(allocator: std.mem.Allocator, pattern: []const u8, flag: ?c_int) !Regex {
         if (zig_regex_new(pattern.ptr, pattern.len, flag orelse -1)) |ptr| {
             // Really only helpful to let zig know there was an allocation.
             const r_ptr = try allocator.create(regex);
@@ -309,7 +428,7 @@ pub const Regex = struct {
         return error.Fail;
     }
 
-    pub inline fn isMatch(self: *Regex, text: []const p_char) bool {
+    pub inline fn isMatch(self: *Regex, text: []const u8) bool {
         return zig_regex_match(self.r.*, text.ptr, text.len);
     }
 
@@ -321,7 +440,7 @@ pub const Regex = struct {
         return try Match.init(self.allocator, search_result);
     }
 
-    pub fn capturesAlloc(self: *Regex, allocator: std.mem.Allocator, text: []const p_char, global: bool) !Captures {
+    pub fn capturesAlloc(self: *Regex, allocator: std.mem.Allocator, text: []const u8, global: bool) !Captures {
         var count: usize = 0;
         const search_result = zig_regex_captures(self.r.*, text.ptr, text.len, &count, global);
         defer zig_regex_free_captures(search_result, count);
@@ -345,7 +464,7 @@ pub const Regex = struct {
         };
     }
 
-    pub fn search(self: *Regex, text: []const p_char) !?Match {
+    pub fn search(self: *Regex, text: []const u8) !?Match {
         const search_result = zig_regex_search(self.r.*, text.ptr, text.len);
         defer zig_regex_free_match(search_result);
         if (search_result.size == 0)
@@ -353,21 +472,21 @@ pub const Regex = struct {
         return try Match.init(self.allocator, search_result);
     }
 
-    pub fn allocReplace(self: *Regex, allocator: std.mem.Allocator, text: []const p_char, fmt: []const p_char) ![]const u8 {
+    pub fn allocReplace(self: *Regex, allocator: std.mem.Allocator, text: []const u8, fmt: []const u8) ![]const u8 {
         var length: usize = 0;
         const result = zig_regex_replace(self.r.*, text.ptr, text.len, fmt.ptr, fmt.len, &length);
         defer zig_regex_delete(result);
         return try allocator.dupe(p_char, result[0..length]);
     }
 
-    pub fn allocReplaceAll(self: *Regex, allocator: std.mem.Allocator, text: []const p_char, fmt: []const p_char) ![]const u8 {
+    pub fn allocReplaceAll(self: *Regex, allocator: std.mem.Allocator, text: []const u8, fmt: []const u8) ![]const u8 {
         var length: usize = 0;
         const result = zig_regex_replaceAll(self.r.*, text.ptr, text.len, fmt.ptr, fmt.len, &length);
         defer zig_regex_delete(result);
         return try allocator.dupe(p_char, result[0..length]);
     }
 
-    pub fn allocFormat(self: *Regex, allocator: std.mem.Allocator, text: []const p_char, fmt: []const p_char) ![]const u8 {
+    pub fn allocFormat(self: *Regex, allocator: std.mem.Allocator, text: []const u8, fmt: []const u8) ![]const u8 {
         var length: usize = 0;
         const result = zig_regex_format(self.r.*, text.ptr, text.len, fmt.ptr, fmt.len, &length);
         defer zig_regex_delete(result);
