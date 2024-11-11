@@ -505,7 +505,7 @@ test "Semver 2.0.0" {
     var re = try regex.Regex.compile(allocator, "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$", null);
     defer re.deinit();
 
-    var valid_iter = std.mem.split(u8,
+    var valid_iter = std.mem.splitSequence(u8,
         \\0.0.4
         \\1.2.3
         \\1.0.0-alpha-a.b-c-somethinglong+build.1-aef.1-its-okay
@@ -542,7 +542,7 @@ test "Semver 2.0.0" {
         \\1.0.0-0A.is.legal
     , "\n");
 
-    var invalid_iter = std.mem.split(u8,
+    var invalid_iter = std.mem.splitSequence(u8,
         \\1
         \\1.2
         \\1.2.3-0123
