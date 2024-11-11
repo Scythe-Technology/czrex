@@ -3,19 +3,31 @@ const regex = @import("regex");
 
 // TODO: More testing?
 
+fn expectEqualStrings(expected: []const u8, string: []const u8) !void {
+    return std.testing.expectEqualStrings(expected, string);
+}
+
+fn expectEqualStringsUnicode(expected: []const u8, string: []const regex.p_wchar) !void {
+    const allocator = std.testing.allocator;
+    const string_utf8 = try regex.utfWideToUtf8Alloc(allocator, string);
+    defer allocator.free(string_utf8);
+    try expectEqualStrings(expected, string_utf8);
+}
+
 test "Fail" {
     try std.testing.expectError(error.Fail, regex.Regex.compile(std.testing.allocator, "**", null));
 }
 
 test "Match" {
-    var re = try regex.Regex.compile(std.testing.allocator, "a(b+)c", null);
+    const allocator = std.testing.allocator;
+    var re = try regex.Regex.compile(allocator, "a(b+)c", null);
     defer re.deinit();
 
     if (try re.match("abbbc")) |m| {
         defer m.deinit();
-        try std.testing.expectEqualStrings("abbbc", m.groups[0].slice);
+        try expectEqualStrings("abbbc", m.groups[0].slice);
         try std.testing.expectEqual(0, m.groups[0].index);
-        try std.testing.expectEqualStrings("bbb", m.groups[1].slice);
+        try expectEqualStrings("bbb", m.groups[1].slice);
         try std.testing.expectEqual(1, m.groups[1].index);
     } else return error.Fail;
 
@@ -25,68 +37,126 @@ test "Match" {
     }
 }
 
-test "Match Unicode" {
+test "Match (unicode)" {
     const allocator = std.testing.allocator;
-    var re = try regex.WRegex.compile(allocator, "🍕", null);
+    var re = try regex.WRegex.compile(allocator, "a(🍕+)c", null);
     defer re.deinit();
 
-    // TODO: Fix
-    // const input = try regex.utf8ToUtfWide(allocator, "a🍕c");
-    // defer allocator.free(input);
+    const input = try regex.utf8ToUtfWideLeAlloc(allocator, "a🍕🍕🍕c");
+    defer allocator.free(input);
 
-    // if (try re.match(input)) |m| {
-    //     defer m.deinit();
-    //     try std.testing.expectEqual(1, m.groups.len);
-    //     std.debug.print("{any}\n", .{m.groups[0].slice});
-    //     // try std.testing.expectEqualStrings("abbbc", m.groups[0].slice);
-    //     try std.testing.expectEqual(0, m.groups[0].index);
-    //     // try std.testing.expectEqualStrings("bbb", m.groups[1].slice);
-    //     // try std.testing.expectEqual(1, m.groups[1].index);
-    // } else return error.Fail;
+    if (try re.match(input)) |m| {
+        defer m.deinit();
+        try std.testing.expectEqual(2, m.groups.len);
+
+        try expectEqualStringsUnicode("a🍕🍕🍕c", m.groups[0].slice);
+        try std.testing.expectEqual(0, m.groups[0].index);
+
+        try expectEqualStringsUnicode("🍕🍕🍕", m.groups[1].slice);
+        try std.testing.expectEqual(1, m.groups[1].index);
+    } else return error.Fail;
 }
 
 test "Workaround Match" {
-    var re = try regex.Regex.compile(std.testing.allocator, "\\s*(a(b+)c)\\s*", null);
+    const allocator = std.testing.allocator;
+    var re = try regex.Regex.compile(allocator, "\\s*(a(b+)c)\\s*", null);
     defer re.deinit();
 
     if (try re.match("abbbc")) |m| {
         defer m.deinit();
-        try std.testing.expectEqualStrings("abbbc", m.groups[0].slice);
+        try expectEqualStrings("abbbc", m.groups[0].slice);
         try std.testing.expectEqual(0, m.groups[0].index);
-        try std.testing.expectEqualStrings("abbbc", m.groups[1].slice);
+        try expectEqualStrings("abbbc", m.groups[1].slice);
         try std.testing.expectEqual(0, m.groups[1].index);
-        try std.testing.expectEqualStrings("bbb", m.groups[2].slice);
+        try expectEqualStrings("bbb", m.groups[2].slice);
         try std.testing.expectEqual(1, m.groups[2].index);
     } else return error.Fail;
 
     if (try re.match("   abbbc")) |m| {
         defer m.deinit();
-        try std.testing.expectEqualStrings("   abbbc", m.groups[0].slice);
+        try expectEqualStrings("   abbbc", m.groups[0].slice);
         try std.testing.expectEqual(0, m.groups[0].index);
-        try std.testing.expectEqualStrings("abbbc", m.groups[1].slice);
+        try expectEqualStrings("abbbc", m.groups[1].slice);
         try std.testing.expectEqual(3, m.groups[1].index);
-        try std.testing.expectEqualStrings("bbb", m.groups[2].slice);
+        try expectEqualStrings("bbb", m.groups[2].slice);
+        try std.testing.expectEqual(4, m.groups[2].index);
+    } else return error.Fail;
+}
+
+test "Workaround Match (unicode)" {
+    const allocator = std.testing.allocator;
+    var re = try regex.WRegex.compile(allocator, "\\s*(a(🍕+)c)\\s*", null);
+    defer re.deinit();
+
+    const input = try regex.utf8ToUtfWideLeAlloc(allocator, "a🍕🍕🍕c");
+    defer allocator.free(input);
+    if (try re.match(input)) |m| {
+        defer m.deinit();
+        try expectEqualStringsUnicode("a🍕🍕🍕c", m.groups[0].slice);
+        try std.testing.expectEqual(0, m.groups[0].index);
+        try expectEqualStringsUnicode("a🍕🍕🍕c", m.groups[1].slice);
+        try std.testing.expectEqual(0, m.groups[1].index);
+        try expectEqualStringsUnicode("🍕🍕🍕", m.groups[2].slice);
+        try std.testing.expectEqual(1, m.groups[2].index);
+    } else return error.Fail;
+
+    const input2 = try regex.utf8ToUtfWideLeAlloc(allocator, "   a🍕🍕🍕c");
+    defer allocator.free(input2);
+    if (try re.match(input2)) |m| {
+        defer m.deinit();
+        try expectEqualStringsUnicode("   a🍕🍕🍕c", m.groups[0].slice);
+        try std.testing.expectEqual(0, m.groups[0].index);
+        try expectEqualStringsUnicode("a🍕🍕🍕c", m.groups[1].slice);
+        try std.testing.expectEqual(3, m.groups[1].index);
+        try expectEqualStringsUnicode("🍕🍕🍕", m.groups[2].slice);
         try std.testing.expectEqual(4, m.groups[2].index);
     } else return error.Fail;
 }
 
 test "Search" {
-    var re = try regex.Regex.compile(std.testing.allocator, "a(b+)c", null);
+    const allocator = std.testing.allocator;
+    var re = try regex.Regex.compile(allocator, "a(b+)c", null);
     defer re.deinit();
 
     if (try re.search("abbbc")) |m| {
         defer m.deinit();
-        try std.testing.expectEqualStrings("abbbc", m.groups[0].slice);
+        try expectEqualStrings("abbbc", m.groups[0].slice);
         try std.testing.expectEqual(0, m.groups[0].index);
-        try std.testing.expectEqualStrings("bbb", m.groups[1].slice);
+        try expectEqualStrings("bbb", m.groups[1].slice);
         try std.testing.expectEqual(1, m.groups[1].index);
     } else return error.Fail;
 
     if (try re.search("   abbbc")) |m| {
         defer m.deinit();
-        try std.testing.expectEqualStrings("abbbc", m.groups[0].slice);
+        try expectEqualStrings("abbbc", m.groups[0].slice);
         try std.testing.expectEqual(3, m.groups[0].index);
-        try std.testing.expectEqualStrings("bbb", m.groups[1].slice);
+        try expectEqualStrings("bbb", m.groups[1].slice);
+        try std.testing.expectEqual(4, m.groups[1].index);
+    }
+}
+
+test "Search (unicode)" {
+    const allocator = std.testing.allocator;
+    var re = try regex.WRegex.compile(allocator, "a(🍕+)c", null);
+    defer re.deinit();
+
+    const input = try regex.utf8ToUtfWideLeAlloc(allocator, "a🍕🍕🍕c");
+    defer allocator.free(input);
+    if (try re.search(input)) |m| {
+        defer m.deinit();
+        try expectEqualStringsUnicode("a🍕🍕🍕c", m.groups[0].slice);
+        try std.testing.expectEqual(0, m.groups[0].index);
+        try expectEqualStringsUnicode("🍕🍕🍕", m.groups[1].slice);
+        try std.testing.expectEqual(1, m.groups[1].index);
+    } else return error.Fail;
+
+    const input2 = try regex.utf8ToUtfWideLeAlloc(allocator, "   a🍕🍕🍕c");
+    defer allocator.free(input2);
+    if (try re.search(input2)) |m| {
+        defer m.deinit();
+        try expectEqualStringsUnicode("a🍕🍕🍕c", m.groups[0].slice);
+        try std.testing.expectEqual(3, m.groups[0].index);
+        try expectEqualStringsUnicode("🍕🍕🍕", m.groups[1].slice);
         try std.testing.expectEqual(4, m.groups[1].index);
     }
 }
@@ -98,16 +168,42 @@ test "Replace" {
 
     const result1 = try re.allocReplace(allocator, "abbbc", "$0");
     defer allocator.free(result1);
-    try std.testing.expectEqualStrings("abbbc", result1);
+    try expectEqualStrings("abbbc", result1);
     const result2 = try re.allocReplace(allocator, "abbbc", "c");
     defer allocator.free(result2);
-    try std.testing.expectEqualStrings("acc", result2);
+    try expectEqualStrings("acc", result2);
     const result3 = try re.allocReplace(allocator, "adddc", "c");
     defer allocator.free(result3);
-    try std.testing.expectEqualStrings("adddc", result3);
+    try expectEqualStrings("adddc", result3);
     const result4 = try re.allocReplace(allocator, "abbbc abbbc", "c");
     defer allocator.free(result4);
-    try std.testing.expectEqualStrings("acc abbbc", result4);
+    try expectEqualStrings("acc abbbc", result4);
+}
+
+fn allocReplaceUnicode(re: *regex.WRegex, allocator: std.mem.Allocator, input: []const u8, replacement: []const u8) ![]const regex.p_wchar {
+    const input_utf16 = try regex.utf8ToUtfWideLeAlloc(allocator, input);
+    defer allocator.free(input_utf16);
+    const replacement_utf16 = try regex.utf8ToUtfWideLeAlloc(allocator, replacement);
+    defer allocator.free(replacement_utf16);
+    return try re.allocReplace(allocator, input_utf16, replacement_utf16);
+}
+test "Replace (unicode)" {
+    const allocator = std.testing.allocator;
+    var re = try regex.WRegex.compile(allocator, "b+", null);
+    defer re.deinit();
+
+    const result1 = try allocReplaceUnicode(&re, allocator, "abbbc", "$0");
+    defer allocator.free(result1);
+    try expectEqualStringsUnicode("abbbc", result1);
+    const result2 = try allocReplaceUnicode(&re, allocator, "abbbc", "c");
+    defer allocator.free(result2);
+    try expectEqualStringsUnicode("acc", result2);
+    const result3 = try allocReplaceUnicode(&re, allocator, "adddc", "c");
+    defer allocator.free(result3);
+    try expectEqualStringsUnicode("adddc", result3);
+    const result4 = try allocReplaceUnicode(&re, allocator, "abbbc abbbc", "c");
+    defer allocator.free(result4);
+    try expectEqualStringsUnicode("acc abbbc", result4);
 }
 
 test "ReplaceAll" {
@@ -117,16 +213,42 @@ test "ReplaceAll" {
 
     const result1 = try re.allocReplaceAll(allocator, "abbbc", "$0");
     defer allocator.free(result1);
-    try std.testing.expectEqualStrings("abbbc", result1);
+    try expectEqualStrings("abbbc", result1);
     const result2 = try re.allocReplaceAll(allocator, "abbbc", "c");
     defer allocator.free(result2);
-    try std.testing.expectEqualStrings("acc", result2);
+    try expectEqualStrings("acc", result2);
     const result3 = try re.allocReplaceAll(allocator, "adddc", "c");
     defer allocator.free(result3);
-    try std.testing.expectEqualStrings("adddc", result3);
+    try expectEqualStrings("adddc", result3);
     const result4 = try re.allocReplaceAll(allocator, "abbbc abbbc", "c");
     defer allocator.free(result4);
-    try std.testing.expectEqualStrings("acc acc", result4);
+    try expectEqualStrings("acc acc", result4);
+}
+
+fn allocReplaceAllUnicode(re: *regex.WRegex, allocator: std.mem.Allocator, input: []const u8, replacement: []const u8) ![]const regex.p_wchar {
+    const input_utf16 = try regex.utf8ToUtfWideLeAlloc(allocator, input);
+    defer allocator.free(input_utf16);
+    const replacement_utf16 = try regex.utf8ToUtfWideLeAlloc(allocator, replacement);
+    defer allocator.free(replacement_utf16);
+    return try re.allocReplaceAll(allocator, input_utf16, replacement_utf16);
+}
+test "ReplaceAll (unicode)" {
+    const allocator = std.testing.allocator;
+    var re = try regex.WRegex.compile(allocator, "b+", null);
+    defer re.deinit();
+
+    const result1 = try allocReplaceAllUnicode(&re, allocator, "abbbc", "$0");
+    defer allocator.free(result1);
+    try expectEqualStringsUnicode("abbbc", result1);
+    const result2 = try allocReplaceAllUnicode(&re, allocator, "abbbc", "c");
+    defer allocator.free(result2);
+    try expectEqualStringsUnicode("acc", result2);
+    const result3 = try allocReplaceAllUnicode(&re, allocator, "adddc", "c");
+    defer allocator.free(result3);
+    try expectEqualStringsUnicode("adddc", result3);
+    const result4 = try allocReplaceAllUnicode(&re, allocator, "abbbc abbbc", "c");
+    defer allocator.free(result4);
+    try expectEqualStringsUnicode("acc acc", result4);
 }
 
 test "ReplaceAll CaseInsensitive" {
@@ -136,20 +258,44 @@ test "ReplaceAll CaseInsensitive" {
 
     const result1 = try re.allocReplaceAll(allocator, "ABBBC", "$0");
     defer allocator.free(result1);
-    try std.testing.expectEqualStrings("ABBBC", result1);
+    try expectEqualStrings("ABBBC", result1);
     const result2 = try re.allocReplaceAll(allocator, "ABBBC", "$1c$3");
     defer allocator.free(result2);
-    try std.testing.expectEqualStrings("AcC", result2);
+    try expectEqualStrings("AcC", result2);
     const result3 = try re.allocReplaceAll(allocator, "ADDDC", "$1c$3");
     defer allocator.free(result3);
-    try std.testing.expectEqualStrings("ADDDC", result3);
+    try expectEqualStrings("ADDDC", result3);
     {
         const result4 = try re.allocReplaceAll(allocator, "ABBBC ABBBC", "$1c$3");
         defer allocator.free(result4);
-        try std.testing.expectEqualStrings("ABBBC ABBBC", result4);
+        try expectEqualStrings("ABBBC ABBBC", result4);
         const result5 = try re.allocReplaceAll(allocator, "ABBBC\nABBBC", "$1c$3");
         defer allocator.free(result5);
-        try std.testing.expectEqualStrings("ABBBC\nABBBC", result5);
+        try expectEqualStrings("ABBBC\nABBBC", result5);
+    }
+}
+
+test "ReplaceAll CaseInsensitive (unicode)" {
+    const allocator = std.testing.allocator;
+    var re = try regex.WRegex.compile(allocator, "^(a)(🍕+)(c)$", regex.FLAG_IGNORECASE);
+    defer re.deinit();
+
+    const result1 = try allocReplaceAllUnicode(&re, allocator, "A🍕🍕🍕C", "$0");
+    defer allocator.free(result1);
+    try expectEqualStringsUnicode("A🍕🍕🍕C", result1);
+    const result2 = try allocReplaceAllUnicode(&re, allocator, "A🍕🍕🍕C", "$1c$3");
+    defer allocator.free(result2);
+    try expectEqualStringsUnicode("AcC", result2);
+    const result3 = try allocReplaceAllUnicode(&re, allocator, "ADDDC", "$1c$3");
+    defer allocator.free(result3);
+    try expectEqualStringsUnicode("ADDDC", result3);
+    {
+        const result4 = try allocReplaceAllUnicode(&re, allocator, "A🍕🍕🍕C A🍕🍕🍕C", "$1c$3");
+        defer allocator.free(result4);
+        try expectEqualStringsUnicode("A🍕🍕🍕C A🍕🍕🍕C", result4);
+        const result5 = try allocReplaceAllUnicode(&re, allocator, "A🍕🍕🍕C\nA🍕🍕🍕C", "$1c$3");
+        defer allocator.free(result5);
+        try expectEqualStringsUnicode("A🍕🍕🍕C\nA🍕🍕🍕C", result5);
     }
 }
 
@@ -160,16 +306,35 @@ test "ReplaceAll CaseInsensitive Multiline" {
 
     const result1 = try re.allocReplaceAll(allocator, "ABBBC\nABBBC", "$0");
     defer allocator.free(result1);
-    try std.testing.expectEqualStrings("ABBBC\nABBBC", result1);
+    try expectEqualStrings("ABBBC\nABBBC", result1);
     const result2 = try re.allocReplaceAll(allocator, "ABBBC\nABBBC", "$1c$3");
     defer allocator.free(result2);
-    try std.testing.expectEqualStrings("AcC\nAcC", result2);
+    try expectEqualStrings("AcC\nAcC", result2);
     const result3 = try re.allocReplaceAll(allocator, "ADDDC\nADDDC", "$1c$3");
     defer allocator.free(result3);
-    try std.testing.expectEqualStrings("ADDDC\nADDDC", result3);
+    try expectEqualStrings("ADDDC\nADDDC", result3);
     const result4 = try re.allocReplaceAll(allocator, "ABBBC ABBBC\nABBBC ABBBC", "$1c$3");
     defer allocator.free(result4);
-    try std.testing.expectEqualStrings("ABBBC ABBBC\nABBBC ABBBC", result4);
+    try expectEqualStrings("ABBBC ABBBC\nABBBC ABBBC", result4);
+}
+
+test "ReplaceAll CaseInsensitive Multiline (unicode)" {
+    const allocator = std.testing.allocator;
+    var re = try regex.WRegex.compile(allocator, "^(a)(🍕+)(c)$", regex.FLAG_IGNORECASE | regex.FLAG_MULTILINE);
+    defer re.deinit();
+
+    const result1 = try allocReplaceAllUnicode(&re, allocator, "A🍕🍕🍕C\nA🍕🍕🍕C", "$0");
+    defer allocator.free(result1);
+    try expectEqualStringsUnicode("A🍕🍕🍕C\nA🍕🍕🍕C", result1);
+    const result2 = try allocReplaceAllUnicode(&re, allocator, "A🍕🍕🍕C\nA🍕🍕🍕C", "$1c$3");
+    defer allocator.free(result2);
+    try expectEqualStringsUnicode("AcC\nAcC", result2);
+    const result3 = try allocReplaceAllUnicode(&re, allocator, "ADDDC\nADDDC", "$1c$3");
+    defer allocator.free(result3);
+    try expectEqualStringsUnicode("ADDDC\nADDDC", result3);
+    const result4 = try allocReplaceAllUnicode(&re, allocator, "A🍕🍕🍕C A🍕🍕🍕C\nA🍕🍕🍕C A🍕🍕🍕C", "$1c$3");
+    defer allocator.free(result4);
+    try expectEqualStringsUnicode("A🍕🍕🍕C A🍕🍕🍕C\nA🍕🍕🍕C A🍕🍕🍕C", result4);
 }
 
 test "Format" {
@@ -179,10 +344,30 @@ test "Format" {
 
     const result1 = try re.allocFormat(allocator, "abbbc", "$0");
     defer allocator.free(result1);
-    try std.testing.expectEqualStrings("bbb", result1);
+    try expectEqualStrings("bbb", result1);
     const result2 = try re.allocFormat(allocator, "abbbc", "b=$0");
     defer allocator.free(result2);
-    try std.testing.expectEqualStrings("b=bbb", result2);
+    try expectEqualStrings("b=bbb", result2);
+}
+
+fn allocFormatUnicode(re: *regex.WRegex, allocator: std.mem.Allocator, input: []const u8, fmt: []const u8) ![]const regex.p_wchar {
+    const input_utfw = try regex.utf8ToUtfWideLeAlloc(allocator, input);
+    defer allocator.free(input_utfw);
+    const fmt_utfw = try regex.utf8ToUtfWideLeAlloc(allocator, fmt);
+    defer allocator.free(fmt_utfw);
+    return try re.allocFormat(allocator, input_utfw, fmt_utfw);
+}
+test "Format (unicode)" {
+    const allocator = std.testing.allocator;
+    var re = try regex.WRegex.compile(allocator, "🍕+", null);
+    defer re.deinit();
+
+    const result1 = try allocFormatUnicode(&re, allocator, "a🍕🍕🍕c", "$0");
+    defer allocator.free(result1);
+    try expectEqualStringsUnicode("🍕🍕🍕", result1);
+    const result2 = try allocFormatUnicode(&re, allocator, "a🍕🍕🍕c", "🍕=$0");
+    defer allocator.free(result2);
+    try expectEqualStringsUnicode("🍕=🍕🍕🍕", result2);
 }
 
 test "Captures" {
@@ -191,57 +376,133 @@ test "Captures" {
     defer re.deinit();
 
     {
-        const captures = try re.capturesAlloc(allocator, "abbbc", true);
-        defer regex.Regex.freeCaptures(allocator, captures);
+        const result = try re.capturesAlloc(allocator, "abbbc", true);
+        defer result.deinit();
+
+        const captures = result.captures;
 
         try std.testing.expectEqual(3, captures.len);
 
         for (captures, 1..) |capture, i| {
             try std.testing.expectEqual(1, capture.groups.len);
             const first = capture.groups[0];
-            try std.testing.expectEqualStrings("b", first.slice);
+            try expectEqualStrings("b", first.slice);
             try std.testing.expectEqual(i, first.index);
         }
     }
 
     {
-        const captures = try re.capturesAlloc(allocator, "abbbc", false);
-        defer regex.Regex.freeCaptures(allocator, captures);
+        const result = try re.capturesAlloc(allocator, "abbbc", false);
+        defer result.deinit();
+
+        const captures = result.captures;
 
         try std.testing.expectEqual(1, captures.len);
 
         for (captures, 1..) |capture, i| {
             try std.testing.expectEqual(1, capture.groups.len);
             const first = capture.groups[0];
-            try std.testing.expectEqualStrings("b", first.slice);
+            try expectEqualStrings("b", first.slice);
+            try std.testing.expectEqual(i, first.index);
+        }
+    }
+}
+
+test "Captures (unicode)" {
+    const allocator = std.testing.allocator;
+    var re = try regex.WRegex.compile(allocator, "🍕", null);
+    defer re.deinit();
+
+    {
+        const input = try regex.utf8ToUtfWideLeAlloc(allocator, "a🍕🍕🍕c");
+        defer allocator.free(input);
+
+        const result = try re.capturesAlloc(allocator, input, true);
+        defer result.deinit();
+
+        const captures = result.captures;
+
+        try std.testing.expectEqual(3, captures.len);
+
+        for (captures, 1..) |capture, i| {
+            try std.testing.expectEqual(1, capture.groups.len);
+            const first = capture.groups[0];
+            try expectEqualStringsUnicode("🍕", first.slice);
+            try std.testing.expectEqual(i, first.index);
+        }
+    }
+
+    {
+        const input = try regex.utf8ToUtfWideLeAlloc(allocator, "a🍕🍕🍕c");
+        defer allocator.free(input);
+
+        const result = try re.capturesAlloc(allocator, input, false);
+        defer result.deinit();
+
+        const captures = result.captures;
+
+        try std.testing.expectEqual(1, captures.len);
+
+        for (captures, 1..) |capture, i| {
+            try std.testing.expectEqual(1, capture.groups.len);
+            const first = capture.groups[0];
+            try expectEqualStringsUnicode("🍕", first.slice);
             try std.testing.expectEqual(i, first.index);
         }
     }
 }
 
 test "Strict Search" {
-    var re = try regex.Regex.compile(std.testing.allocator, "^a(b+)c$", null);
+    const allocator = std.testing.allocator;
+    var re = try regex.Regex.compile(allocator, "^a(b+)c$", null);
     defer re.deinit();
 
     if (try re.search("abbbc")) |m| {
         defer m.deinit();
-        try std.testing.expectEqualStrings("abbbc", m.groups[0].slice);
+        try expectEqualStrings("abbbc", m.groups[0].slice);
         try std.testing.expectEqual(0, m.groups[0].index);
-        try std.testing.expectEqualStrings("bbb", m.groups[1].slice);
+        try expectEqualStrings("bbb", m.groups[1].slice);
         try std.testing.expectEqual(1, m.groups[1].index);
     } else return error.Fail;
 
     if (try re.search("   abbbc")) |m| {
         defer m.deinit();
-        try std.testing.expectEqualStrings("abbbc", m.groups[0].slice);
+        try expectEqualStrings("abbbc", m.groups[0].slice);
         try std.testing.expectEqual(3, m.groups[0].index);
-        try std.testing.expectEqualStrings("bbb", m.groups[1].slice);
+        try expectEqualStrings("bbb", m.groups[1].slice);
+        try std.testing.expectEqual(4, m.groups[1].index);
+    }
+}
+
+test "Strict Search (unicode)" {
+    const allocator = std.testing.allocator;
+    var re = try regex.WRegex.compile(allocator, "^a(🍕+)c$", null);
+    defer re.deinit();
+
+    const input = try regex.utf8ToUtfWideLeAlloc(allocator, "a🍕🍕🍕c");
+    defer allocator.free(input);
+    if (try re.search(input)) |m| {
+        defer m.deinit();
+        try expectEqualStringsUnicode("a🍕🍕🍕c", m.groups[0].slice);
+        try std.testing.expectEqual(0, m.groups[0].index);
+        try expectEqualStringsUnicode("🍕🍕🍕", m.groups[1].slice);
+        try std.testing.expectEqual(1, m.groups[1].index);
+    } else return error.Fail;
+
+    const input2 = try regex.utf8ToUtfWideLeAlloc(allocator, "   a🍕🍕🍕c");
+    defer allocator.free(input2);
+    if (try re.search(input2)) |m| {
+        defer m.deinit();
+        try expectEqualStringsUnicode("a🍕🍕🍕c", m.groups[0].slice);
+        try std.testing.expectEqual(3, m.groups[0].index);
+        try expectEqualStringsUnicode("🍕🍕🍕", m.groups[1].slice);
         try std.testing.expectEqual(4, m.groups[1].index);
     }
 }
 
 test "Semver 2.0.0" {
-    var re = try regex.Regex.compile(std.testing.allocator, "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$", null);
+    const allocator = std.testing.allocator;
+    var re = try regex.Regex.compile(allocator, "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$", null);
     defer re.deinit();
 
     var valid_iter = std.mem.split(u8,

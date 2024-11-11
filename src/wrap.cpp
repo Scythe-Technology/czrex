@@ -3,16 +3,30 @@
 #include <string>
 #include <iterator>
 
+char* bufcopy(const char* buf, size_t len) {
+    char* copy = new char[len];
+    memcpy(copy, buf, len);
+    return copy;
+}
+
+wchar_t* wbufcopy(const wchar_t* buf, size_t len) {
+    wchar_t* copy = new wchar_t[len];
+    wmemcpy(copy, buf, len);
+    return copy;
+}
+
 extern "C" struct match {
     const char** strings;
     size_t* positions;
-    size_t groups;
+    size_t* sizes;
+    size_t size;
 };
 
 extern "C" struct wmatch {
     const wchar_t** strings;
     size_t* positions;
-    size_t groups;
+    size_t* sizes;
+    size_t size;
 };
 
 extern "C" std::regex* zig_regex_new(const char* cstr, size_t len, int flags) {
@@ -52,16 +66,19 @@ extern "C" match zig_regex_captured_match(std::regex* r, const char* cstr, size_
     std::string text(cstr, len);
     std::regex_match(text, match, *r);
 
-    size_t groups = match.size();
-    const char** c_strings = new const char*[groups];
-    size_t* g_positions = new size_t[groups];
+    size_t size = match.size();
+    const char** c_strings = new const char*[size];
+    size_t* g_positions = new size_t[size];
+    size_t* g_sizes = new size_t[size];
   
     for (size_t j = 0; j < match.size(); ++j) {
-        c_strings[j] = strdup(match.str(j).c_str());
+        std::string str = match.str(j);
+        c_strings[j] = bufcopy(str.c_str(), str.size());
         g_positions[j] = match.position(j);
+        g_sizes[j] = str.size();
     }
 
-    return { c_strings, g_positions, groups};
+    return { c_strings, g_positions, g_sizes, size };
 }
 
 extern "C" wmatch zig_wregex_captured_match(std::wregex* r, const wchar_t* cstr, size_t len) {
@@ -69,16 +86,19 @@ extern "C" wmatch zig_wregex_captured_match(std::wregex* r, const wchar_t* cstr,
     std::wstring text(cstr, len);
     std::regex_match(text, match, *r);
 
-    size_t groups = match.size();
-    const wchar_t** c_strings = new const wchar_t*[groups];
-    size_t* g_positions = new size_t[groups];
+    size_t size = match.size();
+    const wchar_t** c_strings = new const wchar_t*[size];
+    size_t* g_positions = new size_t[size];
+    size_t* g_sizes = new size_t[size];
   
     for (size_t j = 0; j < match.size(); ++j) {
-        c_strings[j] = wcsdup(match.str(j).c_str());
+        std::wstring str = match.str(j);
+        c_strings[j] = wbufcopy(str.c_str(), str.size());
         g_positions[j] = match.position(j);
+        g_sizes[j] = str.size();
     }
 
-    return { c_strings, g_positions, groups};
+    return { c_strings, g_positions, g_sizes, size };
 }
 
 extern "C" match zig_regex_search(std::regex* r, const char* cstr, size_t len) {
@@ -86,16 +106,19 @@ extern "C" match zig_regex_search(std::regex* r, const char* cstr, size_t len) {
     std::string text(cstr, len);
     std::regex_search(text, match, *r);
 
-    size_t groups = match.size();
-    const char** c_strings = new const char*[groups];
-    size_t* g_positions = new size_t[groups];
+    size_t size = match.size();
+    const char** c_strings = new const char*[size];
+    size_t* g_positions = new size_t[size];
+    size_t* g_sizes = new size_t[size];
   
     for (size_t j = 0; j < match.size(); ++j) {
-        c_strings[j] = strdup(match.str(j).c_str());
+        std::string str = match.str(j);
+        c_strings[j] = bufcopy(str.c_str(), str.size());
         g_positions[j] = match.position(j);
+        g_sizes[j] = str.size();
     }
 
-    return { c_strings, g_positions, groups};
+    return { c_strings, g_positions, g_sizes, size };
 }
 
 extern "C" wmatch zig_wregex_search(std::wregex* r, const wchar_t* cstr, size_t len) {
@@ -103,52 +126,69 @@ extern "C" wmatch zig_wregex_search(std::wregex* r, const wchar_t* cstr, size_t 
     std::wstring text(cstr, len);
     std::regex_search(text, match, *r);
 
-    size_t groups = match.size();
-    const wchar_t** c_strings = new const wchar_t*[groups];
-    size_t* g_positions = new size_t[groups];
+    size_t size = match.size();
+    const wchar_t** c_strings = new const wchar_t*[size];
+    size_t* g_positions = new size_t[size];
+    size_t* g_sizes = new size_t[size];
   
     for (size_t j = 0; j < match.size(); ++j) {
-        c_strings[j] = wcsdup(match.str(j).c_str());
+        std::wstring str = match.str(j);
+        c_strings[j] = wbufcopy(str.c_str(), str.size());
         g_positions[j] = match.position(j);
+        g_sizes[j] = str.size();
     }
 
-    return { c_strings, g_positions, groups};
+    return { c_strings, g_positions, g_sizes, size };
 }
 
-extern "C" const char* zig_regex_replace(std::regex* r, const char* str, size_t strlen, const char* fmt, size_t fmtlen) {
+extern "C" const char* zig_regex_replace(std::regex* r, const char* str, size_t strlen, const char* fmt, size_t fmtlen, size_t* outlen) {
     std::string text(str, strlen);
     std::string format(fmt, fmtlen);
 
     std::string result = std::regex_replace(text, *r, format, std::regex_constants::format_first_only);
 
-    return strdup(result.c_str());;
+    if (outlen != nullptr)
+        *outlen = result.size();
+
+    return bufcopy(result.c_str(), result.size());
 }
 
-extern "C" const wchar_t* zig_wregex_replace(std::wregex* r, const wchar_t* str, size_t strlen, const wchar_t* fmt, size_t fmtlen) {
+extern "C" const wchar_t* zig_wregex_replace(std::wregex* r, const wchar_t* str, size_t strlen, const wchar_t* fmt, size_t fmtlen, size_t* outlen) {
     std::wstring text(str, strlen);
     std::wstring format(fmt, fmtlen);
 
     std::wstring result = std::regex_replace(text, *r, format, std::regex_constants::format_first_only);
 
-    return wcsdup(result.c_str());
+    if (outlen != nullptr)
+        *outlen = result.size();
+
+    return wbufcopy(result.c_str(), result.size());
 }
 
-extern "C" const char* zig_regex_replaceAll(std::regex* r, const char* str, size_t strlen, const char* fmt, size_t fmtlen) {
+extern "C" const char* zig_regex_replaceAll(std::regex* r, const char* str, size_t strlen, const char* fmt, size_t fmtlen, size_t* outlen) {
     std::string text(str, strlen);
     std::string format(fmt, fmtlen);
 
     std::string result = std::regex_replace(text, *r, format);
 
-    return strdup(result.c_str());
+    if (outlen != nullptr)
+        *outlen = result.size();
+
+
+    return bufcopy(result.c_str(), result.size());
 }
 
-extern "C" const wchar_t* zig_wregex_replaceAll(std::wregex* r, const wchar_t* str, size_t strlen, const wchar_t* fmt, size_t fmtlen) {
+extern "C" const wchar_t* zig_wregex_replaceAll(std::wregex* r, const wchar_t* str, size_t strlen, const wchar_t* fmt, size_t fmtlen, size_t* outlen) {
     std::wstring text(str, strlen);
     std::wstring format(fmt, fmtlen);
 
     std::wstring result = std::regex_replace(text, *r, format);
 
-    return wcsdup(result.c_str());
+    if (outlen != nullptr)
+        *outlen = result.size();
+
+
+    return wbufcopy(result.c_str(), result.size());
 }
 
 extern "C" match* zig_regex_captures(std::regex* r, const char* cstr, size_t len, size_t* out_count, bool global) {
@@ -167,21 +207,24 @@ extern "C" match* zig_regex_captures(std::regex* r, const char* cstr, size_t len
     
     size_t i = 0;
     for (auto it = begin; it != end; ++it, ++i) {
-        const std::smatch& smatch = *it;
-        size_t groups = smatch.size();
+        const std::smatch& match = *it;
+        size_t size = match.size();
         
         // Allocate arrays for strings and positions
-        const char** c_strings = new const char*[groups];
-        size_t* g_positions = new size_t[groups];
+        const char** c_strings = new const char*[size];
+        size_t* g_positions = new size_t[size];
+        size_t* g_sizes = new size_t[size];
 
         // Populate the arrays with group strings and positions
-        for (size_t j = 0; j < groups; ++j) {
-            c_strings[j] = strdup(smatch.str(j).c_str());
-            g_positions[j] = smatch.position(j);
+        for (size_t j = 0; j < size; ++j) {
+            std::string str = match.str(j);
+            c_strings[j] = bufcopy(str.c_str(), str.size());
+            g_positions[j] = match.position(j);
+            g_sizes[j] = str.size();
         }
 
         // Store the match data
-        matches[i] = { c_strings, g_positions, groups };
+        matches[i] = { c_strings, g_positions, g_sizes, size };
         if (!global)
             break;
     }
@@ -189,22 +232,69 @@ extern "C" match* zig_regex_captures(std::regex* r, const char* cstr, size_t len
     return matches;
 }
 
-extern "C" const char* zig_regex_format(std::regex* r, const char* str, size_t strlen, const char* fmt, size_t fmtlen) {
+extern "C" wmatch* zig_wregex_captures(std::wregex* r, const wchar_t* cstr, size_t len, size_t* out_count, bool global) {
+    std::wstring text(cstr, len);
+    std::wsregex_iterator begin(text.begin(), text.end(), *r);
+    std::wsregex_iterator end;
+
+    // Count the number of matches
+    size_t count = 1;
+    if (global)
+        count = std::distance(begin, end);
+    *out_count = count;
+
+    // Allocate an array of `match` structs
+    wmatch* matches = new wmatch[count];
+    
+    size_t i = 0;
+    for (auto it = begin; it != end; ++it, ++i) {
+        const std::wsmatch& match = *it;
+        size_t size = match.size();
+        
+        // Allocate arrays for strings and positions
+        const wchar_t** c_strings = new const wchar_t*[size];
+        size_t* g_positions = new size_t[size];
+        size_t* g_sizes = new size_t[size];
+
+        // Populate the arrays with group strings and positions
+        for (size_t j = 0; j < size; ++j) {
+            std::wstring str = match.str(j);
+            c_strings[j] = wbufcopy(str.c_str(), str.size());
+            g_positions[j] = match.position(j);
+            g_sizes[j] = str.size();
+        }
+
+        // Store the match data
+        matches[i] = { c_strings, g_positions, g_sizes, size };
+        if (!global)
+            break;
+    }
+
+    return matches;
+}
+
+extern "C" const char* zig_regex_format(std::regex* r, const char* str, size_t strlen, const char* fmt, size_t fmtlen, size_t* outlen) {
     std::string text(str, strlen);
     std::string format(fmt, fmtlen);
 
     std::string result = std::regex_replace(text, *r, format, std::regex_constants::format_no_copy);
 
-    return strdup(result.c_str());
+    if (outlen != nullptr)
+        *outlen = result.size();
+
+    return bufcopy(result.c_str(), result.size());
 }
 
-extern "C" const wchar_t* zig_wregex_format(std::wregex* r, const wchar_t* str, size_t strlen, const wchar_t* fmt, size_t fmtlen) {
+extern "C" const wchar_t* zig_wregex_format(std::wregex* r, const wchar_t* str, size_t strlen, const wchar_t* fmt, size_t fmtlen, size_t* outlen) {
     std::wstring text(str, strlen);
     std::wstring format(fmt, fmtlen);
 
     std::wstring result = std::regex_replace(text, *r, format, std::regex_constants::format_no_copy);
 
-    return wcsdup(result.c_str());
+    if (outlen != nullptr)
+        *outlen = result.size();
+
+    return wbufcopy(result.c_str(), result.size());
 }
 
 extern "C" void zig_regex_free(std::regex* r) {
@@ -215,22 +305,28 @@ extern "C" void zig_wregex_free(std::wregex* r) {
     delete r;
 }
 
-extern "C" void zig_regex_free_mem(void* ptr) {
-    free(ptr);
+extern "C" void zig_regex_delete(const char* buf) {
+    delete[] buf;
+}
+
+extern "C" void zig_wregex_delete(const wchar_t* buf) {
+    delete[] buf;
 }
 
 extern "C" void zig_regex_free_match(match m) {
-    for (size_t i = 0; i < m.groups; ++i)
-        free((void*)m.strings[i]);
+    for (size_t i = 0; i < m.size; ++i)
+        zig_regex_delete(m.strings[i]);
     delete[] m.positions;
     delete[] m.strings;
+    delete[] m.sizes;
 }
 
 extern "C" void zig_wregex_free_wmatch(wmatch m) {
-    for (size_t i = 0; i < m.groups; ++i)
-        free((void*)m.strings[i]);
+    for (size_t i = 0; i < m.size; ++i)
+        zig_wregex_delete(m.strings[i]);
     delete[] m.positions;
     delete[] m.strings;
+    delete[] m.sizes;
 }
 
 extern "C" void zig_regex_free_captures(match* m, size_t count) {
