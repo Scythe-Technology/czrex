@@ -11,7 +11,7 @@ char* bufcopy(const char* buf, size_t len) {
 
 wchar_t* wbufcopy(const wchar_t* buf, size_t len) {
     wchar_t* copy = new wchar_t[len];
-    wmemcpy(copy, buf, len);
+    std::memcpy(copy, buf, len * sizeof(wchar_t));
     return copy;
 }
 
@@ -197,9 +197,9 @@ extern "C" match* zig_regex_captures(std::regex* r, const char* cstr, size_t len
     std::sregex_iterator end;
 
     // Count the number of matches
-    size_t count = 1;
-    if (global)
-        count = std::distance(begin, end);
+    size_t count = std::distance(begin, end);
+    if (global && count > 1)
+        count = 1;
     *out_count = count;
 
     // Allocate an array of `match` structs
@@ -238,9 +238,9 @@ extern "C" wmatch* zig_wregex_captures(std::wregex* r, const wchar_t* cstr, size
     std::wsregex_iterator end;
 
     // Count the number of matches
-    size_t count = 1;
-    if (global)
-        count = std::distance(begin, end);
+    size_t count = std::distance(begin, end);
+    if (global && count > 1)
+        count = 1;
     *out_count = count;
 
     // Allocate an array of `match` structs
